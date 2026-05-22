@@ -107,31 +107,37 @@ class AnalyzeSentenceResponse(BaseModel):
 # =========================================================================
 
 def ask_gemini(prompt: str, system_instruction: str = None, is_json: bool = False, response_schema = None) -> str:
-    try:
-        genai_client = get_genai_client()
-        
-        # Gemini 2.5 Flash ile son derece hızlı ve maliyet-etkin üretim yapıyoruz
-        config = types.GenerateContentConfig()
-        if system_instruction:
-            config.system_instruction = system_instruction
-        if is_json:
-            config.response_mime_type = "application/json"
-        if response_schema:
-            config.response_schema = response_schema
+    models = ["gemini-2.5-flash", "gemini-1.5-flash"]
+    last_error = None
 
-        response = genai_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=config,
-        )
+    for model_name in models:
+        try:
+            genai_client = get_genai_client()
+            
+            config = types.GenerateContentConfig()
+            if system_instruction:
+                config.system_instruction = system_instruction
+            if is_json:
+                config.response_mime_type = "application/json"
+            if response_schema:
+                config.response_schema = response_schema
 
-        text = response.text or ""
-        if is_json and text:
-            text = clean_json_text(text)
-        return text
-    except Exception as e:
-        print(f"Gemini API Hatası: {e}")
-        raise e
+            response = genai_client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            )
+
+            text = response.text or ""
+            if is_json and text:
+                text = clean_json_text(text)
+            return text
+        except Exception as e:
+            last_error = e
+            print(f"Model {model_name} failed: {e}. Retrying next model.")
+
+    print(f"All models failed. Last Gemini API Error: {last_error}")
+    raise last_error if last_error else RuntimeError("All AI models failed to generate content.")
 
 
 # =========================================================================
@@ -420,6 +426,7 @@ def explain_grammar():
     except Exception as e:
         print("Grammar Explanation AI Error, serving fallback:", e)
         fallback = get_fallback_grammar(concept)
+        fallback["isFallback"] = True
         return jsonify(fallback)
 
 
@@ -456,6 +463,7 @@ def generate_lesson_content():
     except Exception as e:
         print("Lesson Generator AI Error, serving fallback:", e)
         fallback = get_fallback_lesson(topic or "")
+        fallback["isFallback"] = True
         return jsonify(fallback)
 
 
@@ -500,6 +508,7 @@ def analyze_sentence():
     except Exception as e:
         print("Sentence Analyzer AI Error, serving fallback:", e)
         fallback = get_fallback_analysis(expected_sentence, user_sentence, turkish_prompt)
+        fallback["isFallback"] = True
         return jsonify(fallback)
 
 
